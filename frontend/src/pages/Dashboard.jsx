@@ -29,6 +29,7 @@ export default function Dashboard() {
   const [favoriteSuccess, setFavoriteSuccess] = useState(false);
   const [favoriteRemovalSuccess, setFavoriteRemovalSuccess] = useState(false);
   const [downloadSuccess, setDownloadSuccess] = useState(false);
+  const [duplicateSuccess, setDuplicateSuccess] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(288);
   const [trashOpen, setTrashOpen] = useState(false);
   const [favoriteOpen, setFavoriteOpen] = useState(false);
@@ -235,6 +236,35 @@ async function updateNoteAsFavoriteRemoval(id) {
   }
 }
 
+  async function duplicateNote(note) {
+  try {
+    const result = await createNote({
+      title: note.title,
+      content: note.content
+    });
+
+    if (result) {
+      setEditorMode('edit');
+      setEditingNote(result);
+      setNotes(prev => [...prev, result]);
+      setDuplicateSuccess(true);
+      setTimeout(() => setDuplicateSuccess(false), 3000);
+      return;
+    } else {
+      // Optionally: user feedback or toast
+      alert("Failed to duplicate note. Please try again.");
+      return null;
+    }
+  } catch (err) {
+    console.error("Duplicate note failed:", err);
+    // Optionally: user feedback or show a toast
+    alert("An error occurred while duplicating the note.");
+    return null;
+  }
+}
+
+
+
   /**
    * Handle user logout - YOUR ORIGINAL FUNCTION
    */
@@ -358,7 +388,10 @@ function exportAsPDF(note) {
         
         // Update local state with the new note (now has _id)
         setNotes(prev => [...prev, savedNote]);
-        setEditingNote(savedNote); // Important: update with server response
+        setEditingNote({
+          ...editingNote,
+          _id: savedNote._id // Only update ID after create
+      }); // Important: update with server response
         
         // Switch to edit mode so next auto-save uses update
         setEditorMode('edit');
@@ -372,7 +405,11 @@ function exportAsPDF(note) {
         setNotes(prev =>
           prev.map(n => n._id === updatedNote._id ? updatedNote : n)
         );
-        setEditingNote(updatedNote); // Keep in sync with server
+        setEditingNote({
+          ...editingNote,
+          ...updatedNote,
+          content: editingNote.content //keep unsaved text
+        }); // Keep in sync with server
         
         return { success: true };
       }
@@ -671,6 +708,18 @@ async function handleManualSave() {
             </div>
           )}
 
+          {/*Duplicate Success Toast*/}
+          {duplicateSuccess && (
+          <div className="fixed top-4 right-4 bg-blue-50 border border-blue-200 rounded-lg p-4 shadow-lg z-50">
+            <div className="flex items-center gap-2">
+              <div className="w-5 h-5 bg-blue-500 rounded-full flex items-center justify-center">
+                <Copy size={16} className="text-white" />
+              </div>
+              <p className="text-blue-700 font-medium">Note duplicated successfully!</p>
+            </div>
+          </div>
+        )}
+
 
 
 
@@ -953,9 +1002,7 @@ async function handleManualSave() {
                           <button
                             className="w-full px-4 py-2 text-left text-sm hover:bg-slate-50 flex items-center gap-3 text-slate-700 hover:text-slate-900"
                             onClick={() => {
-                              // TODO: Duplicate note
-                              console.log('Duplicate note:', note._id);
-                              setActiveNoteMenu(null);
+                              duplicateNote(note)
                             }}
                           >
                             <Copy size={16} />
