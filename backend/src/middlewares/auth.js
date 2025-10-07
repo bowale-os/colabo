@@ -16,23 +16,33 @@ const authMiddleware = async (req, res, next) => {
   }
 
   try {
-    // Verify token
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+  // Verify token and catch expiration
+  const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
-    // Attach user info to request (exclude password)
-    req.user = await User.findById(decoded.userId).select('-password');
-    if (!req.user) {
-      return res.status(401).json({
-        error: 'There is no active session, please log in or create an account'
-      });
-    }
-
-    next();
-  } catch (err) {
-    res.status(401).json({
-      error: 'There is no active session, please log in or create an account'
+  // Attach user info (no password)
+  req.user = await User.findById(decoded.userId).select('-password');
+  if (!req.user) {
+    return res.status(401).json({
+      error: 'user_not_found', // clear error code
+      message: 'No active session. Please log in or create an account.',
     });
   }
+  next();
+
+} catch (err) {
+  if (err.name === 'TokenExpiredError') {
+    // JWT-specific expiration error
+    return res.status(401).json({
+      error: 'token_expired', // key for frontend detection
+      message: 'Session expired. Please log in again.',
+    });
+  }
+  return res.status(401).json({
+    error: 'invalid_token',
+    message: 'There is no active session, please log in or create an account.',
+  });
+}
+
 };
 
 module.exports = authMiddleware;

@@ -1,9 +1,10 @@
 import { useEffect, useState, useRef } from "react";
-import { getNotes, getUserInfo, logoutUser, createNote, updateNote} from "../api";
+import { getNotes, getUserInfo, logoutUser, createNote, updateNote, deleteNote} from "../api";
 import { useNavigate } from "react-router-dom";
 import { Search, Plus, Star, Users, Trash2, Menu, MoreVertical, Edit3, Share2, ChevronRight, Sparkles, FileText, Copy, Download } from "lucide-react";
 import TabBar from "../components/TabBar";
 import TextEditor from "../components/TextEditor";
+import { jsPDF } from "jspdf";
 
 
 /**
@@ -15,49 +16,7 @@ import TextEditor from "../components/TextEditor";
  */
 export default function Dashboard() {
   // State management - connected to your backend
-  const [notes, setNotes] = useState([
-    {
-      _id: '1',
-      title: 'Project Brainstorm',
-      content: 'Ideas:\n- Real-time chat\n- Collaborative editing\n- Fun UI with gradients!',
-      createdAt: '2025-09-08T13:21:00Z',
-      updatedAt: '2025-10-01T09:30:00Z',
-      owner: { name: 'Ada' }
-    },
-    {
-      _id: '2',
-      title: 'Meeting Notes',
-      content: '1. Review tasks\n2. Discuss next sprint\n3. Assign new issues.',
-      createdAt: '2025-09-10T08:45:00Z',
-      updatedAt: '2025-09-12T16:15:00Z',
-      owner: { name: 'Chidi' }
-    },
-    {
-      _id: '3',
-      title: 'Personal Diary',
-      content: 'Feeling great building collaborative apps today!',
-      createdAt: '2025-09-27T10:00:00Z',
-      updatedAt: '2025-10-02T11:34:00Z',
-      owner: { name: 'Zainab' }
-    },
-    {
-      _id: '4',
-      title: 'Todo List',
-      content: '[] Finish React dashboard\n[] Write clean code\n[] Celebrate small wins!',
-      createdAt: '2025-09-20T12:31:00Z',
-      updatedAt: '2025-10-03T08:10:00Z',
-      owner: { name: 'Ada' }
-    },
-    {
-      _id: '5',
-      title: 'Bug Report',
-      content: 'The sidebar animation jitters on mobile devices.',
-      createdAt: '2025-10-02T14:14:00Z',
-      updatedAt: '2025-10-04T09:05:00Z',
-      owner: { name: 'Chidi' }
-    }
-  ]);
-  
+  const [notes, setNotes] = useState([]);
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -65,11 +24,19 @@ export default function Dashboard() {
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState(null);
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const [deleteSuccess, setDeleteSuccess] = useState(false);
+  const [MovedToTrashSuccess, setMovedToTrashSuccess] = useState(false);
+  const [favoriteSuccess, setFavoriteSuccess] = useState(false);
+  const [favoriteRemovalSuccess, setFavoriteRemovalSuccess] = useState(false);
+  const [downloadSuccess, setDownloadSuccess] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(288);
+  const [trashOpen, setTrashOpen] = useState(false);
+  const [favoriteOpen, setFavoriteOpen] = useState(false);
   const [isResizing, setIsResizing] = useState(false);
   const [editorMode, setEditorMode] = useState(null); // 'create', 'edit', or null
   const [editingNote, setEditingNote] = useState(null); // Used for both new and edit
   const [activeNoteMenu, setActiveNoteMenu] = useState(null);
+  const [exportFormatMenu, setExportFormatMenu] = useState(null);
   const menuRef = useRef(null);
 
 
@@ -132,8 +99,7 @@ useEffect(() => {
 
 
 useEffect(() => {
-  // Handler runs on every click anywhere in the document
-  function handleClickOutside() {
+  function handleClickOutside(e) {
     if (!menuRef.current) return;
     if (!menuRef.current.contains(e.target)) {
       setActiveNoteMenu(null);
@@ -141,10 +107,32 @@ useEffect(() => {
   }
   if (activeNoteMenu !== null) {
     document.addEventListener("mousedown", handleClickOutside);
-    // Clean up: remove the event when the menu closes or component unmounts
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }
 }, [activeNoteMenu]);
+
+useEffect(() => {
+  if (editorMode && window.innerWidth < 680) {
+    setSidebarCollapsed(true);
+  }
+}, [editorMode]);
+
+
+const closeMenuTimer = useRef();
+
+const handleMouseLeave = () => {
+  closeMenuTimer.current = setTimeout(() => {
+    setExportFormatMenu(null);
+    setActiveNoteMenu(null);
+  }, 300); // 300ms delay
+};
+
+const handleMouseEnter = () => {
+  clearTimeout(closeMenuTimer.current);
+};
+
+
+
 
 
   /**
@@ -167,7 +155,85 @@ useEffect(() => {
     }
   }
   
+  async function updateNoteAsTrashed(id) {
+  try {
+    await updateNote(id, { trashed: true, trashedAt: new Date() });
+    
+    // Optimistically update local state
+    setNotes(prevNotes =>
+      prevNotes.map(note =>
+        note._id === id ? { ...note, trashed: true, trashedAt: new Date() } : note
+      )
+    );
+    setMovedToTrashSuccess(true);
+    // Optionally show success toast, e.g.,
+    setTimeout(() => setMovedToTrashSuccess(false), 3000);
 
+
+  } catch (err) {
+    console.error("Failed to move note to trash:", err);
+    // Optionally, show a toast or error message to the user
+  }
+}
+
+async function deleteNoteForever(id) {
+  const ok = window.confirm("Delete this note permanently? This cannot be undone.");
+  if (!ok) return;
+  try {
+    // Optimistically remove the note from local state
+    setNotes(prevNotes => prevNotes.filter(note => note._id !== id));
+    // Call your API
+    await deleteNote(id);
+    setDeleteSuccess(true);
+    setTimeout(() => setDeleteSuccess(false), 3000);
+  } catch (err) {
+    setSaveError("Failed to delete the note.", err);
+    // Optional: Reload notes from server if needed
+    // await loadDashboardData();
+  }
+}
+
+async function updateNoteAsFavorite(id) {
+  try {
+    await updateNote(id, { isFavorite: true });
+    
+    // Optimistically update local state
+    setNotes(prevNotes =>
+      prevNotes.map(note =>
+        note._id === id ? { ...note, isFavorite: true } : note
+      )
+    );
+    setFavoriteSuccess(true);
+    // Optionally show success toast, e.g.,
+    setTimeout(() => setFavoriteSuccess(false), 3000);
+
+
+  } catch (err) {
+    console.error("Failed to add notes to favorite:", err);
+    // Optionally, show a toast or error message to the user
+  }
+}
+
+async function updateNoteAsFavoriteRemoval(id) {
+  try {
+    await updateNote(id, { isFavorite: false });
+    
+    // Optimistically update local state
+    setNotes(prevNotes =>
+      prevNotes.map(note =>
+        note._id === id ? { ...note, isFavorite: false } : note
+      )
+    );
+    setFavoriteRemovalSuccess(true);
+    // Optionally show success toast, e.g.,
+    setTimeout(() => setFavoriteRemovalSuccess(false), 3000);
+
+
+  } catch (err) {
+    console.error("Failed to add notes to favorite:", err);
+    // Optionally, show a toast or error message to the user
+  }
+}
 
   /**
    * Handle user logout - YOUR ORIGINAL FUNCTION
@@ -215,10 +281,68 @@ useEffect(() => {
 }
 
 
+function exportAsMarkdown(note) {
+  const blob = new Blob([note.content], { type: "text/markdown" });
+  const url = URL.createObjectURL(blob);
+
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = note.title + ".md"; // Filename
+  document.body.appendChild(link);
+  link.click();
+  setDownloadSuccess(true);
+  setTimeout(() => setDownloadSuccess(false), 3000);
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+  }
+
+function exportAsText(note) {
+  const blob = new Blob([note.content], { type: "text/plain" });
+  const url = URL.createObjectURL(blob);
+
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = note.title + ".txt";
+  document.body.appendChild(link);
+  link.click();
+  setDownloadSuccess(true);
+  setTimeout(() => setDownloadSuccess(false), 3000);
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+  
+
+}
+
+function exportAsPDF(note) {
+  const doc = new jsPDF();
+  doc.text(note.content, 10, 10); // Start at position (10, 10)
+  setDownloadSuccess(true);
+  setTimeout(() => setDownloadSuccess(false), 3000);
+  doc.save(note.title + ".pdf");
+  
+}
+
+
   /**
    * Filter notes based on search
    */
-  const filteredNotes = notes.filter(note =>
+  const filteredNotes = (notes || [])
+  .filter(note => !note.trashed)
+  .filter(note =>
+    note.title?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    note.content?.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
+  const filteredTrashedNotes = (notes || [])
+  .filter(note => note.trashed)
+  .filter(note =>
+    note.title?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    note.content?.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
+  const filteredFavoritedNotes = (notes || [])
+  .filter(note => note.isFavorite)
+  .filter(note =>
     note.title?.toLowerCase().includes(searchQuery.toLowerCase()) ||
     note.content?.toLowerCase().includes(searchQuery.toLowerCase())
   );
@@ -368,21 +492,45 @@ async function handleManualSave() {
         {/* Navigation */}
           <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
           {/* All Notes (active example, bg highlight & badge) */}
-          <button className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg bg-blue-50 text-blue-700 font-medium text-sm transition-all min-w-0">
+          <button
+            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg ${!trashOpen && !favoriteOpen ? "bg-blue-50 text-blue-700" : "text-slate-600"} font-medium text-sm transition-all min-w-0`}
+            onClick={() => {
+              setFavoriteOpen(false);
+              setTrashOpen(false);
+            }}
+          >
             <Edit3 size={18} className="flex-shrink-0" />
             {!sidebarCollapsed && (
               <>
                 <span className="truncate flex-1 text-left">All Notes</span>
-                <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full flex-shrink-0">{notes.length}</span>
+                <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full flex-shrink-0">
+                  {notes.filter(n => !n.trashed).length}
+                </span>
               </>
             )}
           </button>
 
+
+
           {/* Favorites */}
-          <button className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-slate-50 text-slate-600 text-sm transition-all min-w-0">
-            <Star size={18} className="flex-shrink-0" />
-            {!sidebarCollapsed && <span className="truncate flex-1 text-left">Favorites</span>}
-          </button>
+          <button
+          className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg ${favoriteOpen ? "bg-blue-50 text-blue-700" : "text-slate-600"} font-medium text-sm transition-all min-w-0`}
+          onClick={() => {
+            setFavoriteOpen(true);
+            setTrashOpen(false);
+          }}
+        >
+          <Star size={18} className="flex-shrink-0" />
+          {!sidebarCollapsed && (
+            <>
+              <span className="truncate flex-1 text-left">Favorites</span>
+              <span className="text-xs bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full flex-shrink-0">
+                {notes.filter(n => n.isFavorite && !n.trashed).length}
+              </span>
+            </>
+          )}
+        </button>
+
 
           {/* Shared With Me */}
           <button className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-slate-50 text-slate-600 text-sm transition-all min-w-0">
@@ -391,10 +539,26 @@ async function handleManualSave() {
           </button>
 
           {/* Trash */}
-          <button className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-slate-50 text-slate-600 text-sm transition-all min-w-0">
-            <Trash2 size={18} className="flex-shrink-0" />
-            {!sidebarCollapsed && <span className="truncate flex-1 text-left">Trash</span>}
-          </button>
+            <button
+          className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg ${trashOpen ? "bg-blue-50 text-blue-700" : "text-slate-600"} font-medium text-sm transition-all min-w-0`}
+          onClick={() => {
+            setTrashOpen(true);
+            setFavoriteOpen(false);
+          }}
+        >
+          <Trash2 size={18} className="flex-shrink-0" />
+          {!sidebarCollapsed && (
+            <>
+              <span className="truncate flex-1 text-left">Trash</span>
+              <span className="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full flex-shrink-0">
+                {notes.filter(n => n.trashed).length}
+              </span>
+            </>
+          )}
+        </button>
+
+
+
         </nav>
 
 
@@ -432,265 +596,468 @@ async function handleManualSave() {
       </aside>
 
       {/* Main Content */}
+      
       <main className="flex-1 flex flex-col overflow-hidden">
-        
-        {/* Top Bar - glassmorphism effect */}
-        <header className="h-16 border-b border-slate-200 bg-white/80 backdrop-blur-sm flex items-center px-8 shadow-sm">
-          <div className="flex-1 flex items-center gap-4">
-            {/* Search with gradient focus ring */}
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-              <input
-                type="text"
-                placeholder="Search notes..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-80 pl-10 pr-4 py-2 text-sm border border-slate-200 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
-              />
+
+        {/* Success Toast */}
+          {saveSuccess && (
+            <div className="fixed top-4 right-4 bg-green-50 border border-green-200 rounded-lg p-4 shadow-lg z-50">
+              <div className="flex items-center gap-2">
+                <div className="w-5 h-5 bg-green-500 rounded-full flex items-center justify-center">
+                  <span className="text-white text-xs">✓</span>
+                </div>
+                <p className="text-green-700 font-medium">Note saved successfully!</p>
+              </div>
             </div>
-          </div>
-          
-          {/* Action buttons */}
-          <div className="flex items-center gap-2">
-          <button className="px-4 py-2 text-sm font-medium text-slate-700 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-all flex items-center gap-2">
-            <Share2 size={16} />
-            Share
-          </button>
-          <button className="p-2 hover:bg-slate-100 rounded-lg transition-all text-slate-600">
-            <MoreVertical size={18} />
-          </button>
-        </div>
-        </header>
+          )}
 
-      {/* Success Toast */}
-      {saveSuccess && (
-      <div className="fixed top-4 right-4 bg-green-50 border border-green-200 rounded-lg p-4 shadow-lg z-50">
-        <div className="flex items-center gap-2">
-          <div className="w-5 h-5 bg-green-500 rounded-full flex items-center justify-center">
-            <span className="text-white text-xs">✓</span>
-          </div>
-          <p className="text-green-700 font-medium">Note saved successfully!</p>
-        </div>
-      </div>
-      )}
+          {/* Delete Success Toast */}
+          {deleteSuccess && (
+            <div className="fixed top-4 right-4 bg-red-50 border border-red-200 rounded-lg p-4 shadow-lg z-50">
+              <div className="flex items-center gap-2">
+                <div className="w-5 h-5 bg-red-500 rounded-full flex items-center justify-center">
+                  <Trash2 size={14} className="text-white" />
+                </div>
+                <p className="text-red-700 font-medium">Note permanently deleted!</p>
+              </div>
+            </div>
+          )}
+
+          {/* Trashed (move to trash) Toast */}
+          {MovedToTrashSuccess && (
+            <div className="fixed top-4 right-4 bg-amber-50 border border-amber-200 rounded-lg p-4 shadow-lg z-50">
+              <div className="flex items-center gap-2">
+                <div className="w-5 h-5 bg-amber-500 rounded-full flex items-center justify-center">
+                  <Trash2 size={14} className="text-white" />
+                </div>
+                <p className="text-amber-700 font-medium">Note moved to trash!</p>
+              </div>
+            </div>
+          )}
+
+          {/* Favorite Success Toast */}
+          {favoriteSuccess && (
+            <div className="fixed top-4 right-4 bg-yellow-50 border border-yellow-200 rounded-lg p-4 shadow-lg z-50">
+              <div className="flex items-center gap-2">
+                <div className="w-5 h-5 bg-yellow-400 rounded-full flex items-center justify-center">
+                  <Star size={14} className="text-white" />
+                </div>
+                <p className="text-yellow-700 font-medium">Note added to favorites!</p>
+              </div>
+            </div>
+          )}
+
+          {/* Favorite Remove Success Toast */}
+          {favoriteRemovalSuccess && (
+            <div className="fixed top-4 right-4 bg-yellow-50 border border-yellow-200 rounded-lg p-4 shadow-lg z-50">
+              <div className="flex items-center gap-2">
+                <div className="w-5 h-5 bg-yellow-400 rounded-full flex items-center justify-center">
+                  <Star size={14} className="text-white" />
+                </div>
+                <p className="text-yellow-700 font-medium">Removed from favorites!</p>
+              </div>
+            </div>
+          )}
+
+          {/* Download Success Toast */}
+          {downloadSuccess && (
+            <div className="fixed top-4 right-4 bg-blue-50 border border-blue-200 rounded-lg p-4 shadow-lg z-50">
+              <div className="flex items-center gap-2">
+                <div className="w-5 h-5 bg-blue-500 rounded-full flex items-center justify-center">
+                  <Download size={14} className="text-white" />
+                </div>
+                <p className="text-blue-700 font-medium">Note downloaded!</p>
+              </div>
+            </div>
+          )}
 
 
-      <div className="flex-1 overflow-y-auto">
-        <div className={`mx-auto py-8 transition-all ${
-    editorMode ? 'px-4 sm:px-6 lg:px-8' : 'px-8'
-  } ${editorMode ? 'max-w-5xl' : 'max-w-6xl'}`}>
-        {editorMode ? (
-        <TextEditor
-        note={editingNote}
-        setNote={setEditingNote}
-        onSave={handleManualSave}
-        onAutoSave={handleAutoSave}
-        onCancel={handleCancelNote}
-        isSaving={isSaving}
-        saveError={saveError}
-        mode={editorMode}
+
+
+  {/* Top Bar */}
+  <header className="h-16 border-b border-slate-200 bg-white/80 backdrop-blur-sm flex items-center px-8 shadow-sm">
+    <div className="flex-1 flex items-center gap-4">
+      <div className="relative">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+        <input
+          type="text"
+          placeholder="Search notes..."
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          className="w-80 pl-10 pr-4 py-2 text-sm border border-slate-200 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
         />
-      ) : (
-        filteredNotes.length > 0 ? (
+      </div>
+    </div>
+    <div className="flex items-center gap-2">
+      <button className="px-4 py-2 text-sm font-medium text-slate-700 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-all flex items-center gap-2">
+        <Share2 size={16} />
+        Share
+      </button>
+      <button className="p-2 hover:bg-slate-100 rounded-lg transition-all text-slate-600">
+        <MoreVertical size={18} />
+      </button>
+    </div>
+  </header>
+
+  {/* Toasts */}
+  {saveSuccess && (
+    <div className="fixed top-4 right-4 bg-green-50 border border-green-200 rounded-lg p-4 shadow-lg z-50">
+      <div className="flex items-center gap-2">
+        <div className="w-5 h-5 bg-green-500 rounded-full flex items-center justify-center">
+          <span className="text-white text-xs">✓</span>
+        </div>
+        <p className="text-green-700 font-medium">Note saved successfully!</p>
+      </div>
+    </div>
+  )}
+  {deleteSuccess && (
+    <div className="fixed top-4 right-4 bg-red-50 border border-red-200 rounded-lg p-4 shadow-lg z-50">
+      <div className="flex items-center gap-2">
+        <div className="w-5 h-5 bg-red-500 rounded-full flex items-center justify-center">
+          <Trash2 size={14} className="text-white" />
+        </div>
+        <p className="text-red-700 font-medium">Note permanently deleted!</p>
+      </div>
+    </div>
+  )}
+  {MovedToTrashSuccess && (
+    <div className="fixed top-4 right-4 bg-amber-50 border border-amber-200 rounded-lg p-4 shadow-lg z-50">
+      <div className="flex items-center gap-2">
+        <div className="w-5 h-5 bg-amber-500 rounded-full flex items-center justify-center">
+          <Trash2 size={14} className="text-white" />
+        </div>
+        <p className="text-amber-700 font-medium">Note moved to trash!</p>
+      </div>
+    </div>
+  )}
+
+  {/* Main workspace */}
+  <div className="flex-1 overflow-y-auto">
+    <div className={`mx-auto py-8 transition-all ${editorMode ? 'px-4 sm:px-6 lg:px-8' : 'px-8'} ${editorMode ? 'max-w-5xl' : 'max-w-6xl'}`}>
+      {/* EDITOR VIEW */}
+      {editorMode ? (
+        <TextEditor
+          note={editingNote}
+          setNote={setEditingNote}
+          onSave={handleManualSave}
+          onAutoSave={handleAutoSave}
+          onCancel={handleCancelNote}
+          isSaving={isSaving}
+          saveError={saveError}
+          mode={editorMode}
+        />
+      ) : trashOpen ? (
+        // TRASH VIEW
+        filteredTrashedNotes.length > 0 ? (
           <>
-            {/* Notes Header */}
             <div className="mb-8">
-              <h2 className="text-3xl font-bold text-slate-900 mb-2">Your Notes</h2>
-              <p className="text-slate-600">
-                {filteredNotes.length} {filteredNotes.length === 1 ? 'note' : 'notes'}
-                {searchQuery && ` matching "${searchQuery}"`}
-              </p>
+              <h2 className="text-3xl font-bold text-slate-900 mb-2">Trash</h2>
+              <p className="text-slate-600">{filteredTrashedNotes.length} {filteredTrashedNotes.length === 1 ? 'note' : 'notes'} in trash.</p>
             </div>
-            {/* Notes Grid */}
             <div className="grid gap-4">
-            {filteredNotes.map((note, index) => (
-                  <div
-                    key={note._id}
-                    className="group relative bg-white border border-slate-200 rounded-xl p-6 hover:shadow-xl hover:border-slate-300 transition-all duration-200 cursor-pointer"
-                  >
-                    {/* Subtle gradient overlay on hover */}
-                    <div className="absolute inset-0 bg-gradient-to-br from-blue-50 to-purple-50 opacity-0 group-hover:opacity-100 rounded-xl transition-opacity pointer-events-none"></div>
-                    
-                    <div className="relative flex items-start justify-between gap-4">
-                      <div className="flex-1 min-w-0">
-                        {/* Note icon and title */}
-                        <div className="flex items-center gap-2 mb-2">
-                          <FileText size={16} className="text-slate-400" />
-                          <h3 className="text-lg font-semibold text-slate-900 truncate group-hover:text-blue-700 transition-colors">
-                            {note.title || 'Untitled Note'}
-                          </h3>
-                        </div>
-                        
-                        {/* Note preview */}
-                        <p className="text-sm text-slate-600 line-clamp-2 mb-4 leading-relaxed">
-                          {note.content || 'Start writing...'}
-                        </p>
-                        
-                        {/* Metadata */}
-                        <div className="flex items-center gap-4 text-xs text-slate-500">
-                          <span className="font-medium">{formatDate(note.updatedAt)}</span>
-                          {note.owner?.name && (
-                            <>
-                              <span>•</span>
-                              <div className="flex items-center gap-1.5">
-                                <div className="w-5 h-5 rounded-full bg-gradient-to-br from-blue-600 to-purple-600 flex items-center justify-center text-xs font-bold text-white">
-                                  {note.owner.name.charAt(0).toUpperCase()}
-                                </div>
-                                <span>{note.owner.name}</span>
-                              </div>
-                            </>
-                          )}
-                        </div>
+              {filteredTrashedNotes.map(note => (
+                <div key={note._id} className="group relative bg-white border border-slate-200 rounded-xl p-6 hover:shadow-xl hover:border-slate-300 transition-all duration-200 cursor-pointer opacity-70">
+                  <div className="relative flex items-start justify-between gap-4">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-2">
+                        <FileText size={16} className="text-slate-400" />
+                        <h3 className="text-lg font-semibold text-slate-900 truncate group-hover:text-blue-700 transition-colors">
+                          {note.title || 'Untitled Note'}
+                        </h3>
                       </div>
-                    
-                      {/* Action buttons - gradient on hover */}
-                    <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                      {/* Edit Button */}
-                      <button 
-                        className="p-2 hover:bg-blue-50 rounded-lg transition-all text-slate-600 hover:text-blue-700"
-                        onClick={() => {
-                          setEditorMode('edit');
-                          setEditingNote(note);
-                          setSaveError(null);
-                        }}
-                        title="Edit note"
-                      >
-                        <Edit3 size={16} />
-                      </button>
-
-                      {/* Share/Collaborate Button */}
-                      <button 
-                        className="p-2 hover:bg-blue-50 rounded-lg transition-all text-slate-600 hover:text-blue-700"
-                        title="Share with team"
-                      >
-                        <Users size={16} />
-                      </button>
-
-                      {/* More Options Dropdown */}
-                      <div className="relative">
-                        <button 
-                          className="p-2 hover:bg-blue-50 rounded-lg transition-all text-slate-600 hover:text-blue-700"
-                          onClick={() => {
-                            // Toggle dropdown for this specific note
-                            setActiveNoteMenu(activeNoteMenu === note._id ? null : note._id);
-                          }}
-                          title="More options"
+                      <p className="text-sm text-slate-500 line-clamp-2 mb-4 leading-relaxed">
+                        {note.content || ''}
+                      </p>
+                      <div className="flex items-center gap-4 text-xs text-slate-400">
+                        <span>{formatDate(note.updatedAt)}</span>
+                        <span className="text-xs italic ml-2">Moved to trash</span>
+                      </div>
+                      <div className="flex gap-2 mt-4">
+                        <button
+                          className="px-3 py-1.5 text-xs rounded-md bg-red-50 text-red-700 hover:bg-red-100 transition"
+                          onClick={() => deleteNoteForever(note._id)}
                         >
-                          <MoreVertical size={16} />
+                          Delete forever
                         </button>
-
-                        {/* Dropdown Menu */}
-                        {activeNoteMenu === note._id && (
-                          <div ref={menuRef} className="absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-xl border border-slate-200 py-1 z-10">
-                            {/* Favorite/Star */}
-                            <button
-                              className="w-full px-4 py-2 text-left text-sm hover:bg-slate-50 flex items-center gap-3 text-slate-700 hover:text-slate-900"
-                              onClick={() => {
-                                // TODO: Toggle favorite status
-                                console.log('Toggle favorite:', note._id);
-                                setActiveNoteMenu(null);
-                              }}
-                            >
-                              <Star size={16} />
-                              {note.isFavorite ? 'Remove from favorites' : 'Add to favorites'}
-                            </button>
-
-                            {/* Duplicate */}
-                            <button
-                              className="w-full px-4 py-2 text-left text-sm hover:bg-slate-50 flex items-center gap-3 text-slate-700 hover:text-slate-900"
-                              onClick={() => {
-                                // TODO: Duplicate note
-                                console.log('Duplicate note:', note._id);
-                                setActiveNoteMenu(null);
-                              }}
-                            >
-                              <Copy size={16} />
-                              Duplicate
-                            </button>
-
-                            {/* Export */}
-                            <button
-                              className="w-full px-4 py-2 text-left text-sm hover:bg-slate-50 flex items-center gap-3 text-slate-700 hover:text-slate-900"
-                              onClick={() => {
-                                // TODO: Export as markdown/PDF
-                                console.log('Export note:', note._id);
-                                setActiveNoteMenu(null);
-                              }}
-                            >
-                              <Download size={16} />
-                              Export
-                            </button>
-
-                            {/* Move to Trash */}
-                            <div className="border-t border-slate-200 my-1"></div>
-                            <button
-                              className="w-full px-4 py-2 text-left text-sm hover:bg-red-50 flex items-center gap-3 text-red-600 hover:text-red-700"
-                              onClick={() => {
-                                // TODO: Move to trash with confirmation
-                                if (confirm('Move this note to trash?')) {
-                                  console.log('Delete note:', note._id);
-                                  setActiveNoteMenu(null);
-                                }
-                              }}
-                            >
-                              <Trash2 size={16} />
-                              Move to trash
-                            </button>
-                          </div>
-                        )}
                       </div>
-                    </div>
                     </div>
                   </div>
-                ))}
+                </div>
+              ))}
             </div>
           </>
         ) : (
-          // Empty State UI
           <div className="text-center py-20">
-                {/* Icon with gradient background */}
-                <div className="relative inline-block mb-6">
-                  <div className="absolute inset-0 bg-gradient-to-br from-blue-600 to-purple-600 rounded-2xl blur-xl opacity-20"></div>
-                  <div className="relative w-20 h-20 mx-auto rounded-2xl bg-gradient-to-br from-blue-100 to-purple-100 flex items-center justify-center">
-                    <Edit3 size={32} className="text-blue-600" />
+            <div className="relative inline-block mb-6">
+              <div className="absolute inset-0 bg-gradient-to-br from-blue-600 to-purple-600 rounded-2xl blur-xl opacity-20"></div>
+              <div className="relative w-20 h-20 mx-auto rounded-2xl bg-gradient-to-br from-blue-100 to-purple-100 flex items-center justify-center">
+                <Trash2 size={32} className="text-blue-600" />
+              </div>
+            </div>
+            <h3 className="text-3xl font-bold text-slate-900 mb-3">Trash is empty</h3>
+            <p className="text-lg text-slate-600 mb-8 max-w-md mx-auto">No notes in trash. Trashed notes will appear here for review or restoration.</p>
+          </div>
+        )
+      ) : favoriteOpen ? (
+        // FAVORITES VIEW
+        filteredFavoritedNotes.length > 0 ? (
+          <>
+            <div className="mb-8">
+              <h2 className="text-3xl font-bold text-slate-900 mb-2">Favorites</h2>
+              <p className="text-slate-600">{filteredFavoritedNotes.length} {filteredFavoritedNotes.length === 1 ? 'favorite note' : 'favorite notes'}.</p>
+            </div>
+            <div className="grid gap-4">
+              {filteredFavoritedNotes.map(note => (
+                <div key={note._id} className="group relative bg-white border border-slate-200 rounded-xl p-6 hover:shadow-xl hover:border-slate-300 transition-all duration-200 cursor-pointer">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Star size={16} className="text-yellow-500" />
+                    <h3 className="text-lg font-semibold text-slate-900 truncate group-hover:text-blue-700 transition-colors">
+                      {note.title || "Untitled Note"}
+                    </h3>
+                  </div>
+                  <p className="text-sm text-slate-600 line-clamp-2 mb-4 leading-relaxed">
+                    {note.content || ""}
+                  </p>
+                  <div className="flex items-center gap-4 text-xs text-slate-500">
+                    <span className="font-medium">{formatDate(note.updatedAt)}</span>
+                    {note.owner?.name && (
+                      <>
+                        <span>•</span>
+                        <div className="flex items-center gap-1.5">
+                          <div className="w-5 h-5 rounded-full bg-gradient-to-br from-blue-600 to-purple-600 flex items-center justify-center text-xs font-bold text-white">
+                            {note.owner.name.charAt(0).toUpperCase()}
+          </div>
+          <span>{note.owner.name}</span>
+        </div>
+      </>
+    )}
+  </div>
+  {/* Add the Remove from Favorites button here */}
+  <button
+    className="mt-4 px-3 py-1.5 rounded-md bg-yellow-50 text-yellow-700 border border-yellow-200 hover:bg-yellow-100 transition text-xs font-medium flex items-center gap-2"
+    onClick={() => updateNoteAsFavoriteRemoval(note._id)}
+    title="Remove from favorites"
+  >
+    <Star size={14} className="text-yellow-500" />
+    Remove from favorites
+  </button>
+</div>
+
+              ))}
+            </div>
+          </>
+        ) : (
+          <div className="text-center py-20">
+            <div className="relative inline-block mb-6">
+              <div className="absolute inset-0 bg-gradient-to-br from-yellow-400 to-yellow-300 rounded-2xl blur-xl opacity-20"></div>
+              <div className="relative w-20 h-20 mx-auto rounded-2xl bg-gradient-to-br from-yellow-100 to-yellow-200 flex items-center justify-center">
+                <Star size={32} className="text-yellow-600" />
+              </div>
+            </div>
+            <h3 className="text-3xl font-bold text-slate-900 mb-3">No favorites yet</h3>
+            <p className="text-lg text-slate-600 mb-8 max-w-md mx-auto">Star notes to see your favorites here.</p>
+          </div>
+        )
+      ) : filteredNotes.length > 0 ? (
+        // ALL NOTES VIEW
+        <>
+          <div className="mb-8">
+            <h2 className="text-3xl font-bold text-slate-900 mb-2">Your Notes</h2>
+            <p className="text-slate-600">
+              {filteredNotes.length} {filteredNotes.length === 1 ? 'note' : 'notes'}
+              {searchQuery && ` matching "${searchQuery}"`}
+            </p>
+          </div>
+          <div className="grid gap-4">
+            {filteredNotes.map(note => (
+              <div 
+                key={note._id} 
+                className="group relative bg-white border border-slate-200 rounded-xl p-6 hover:shadow-xl hover:border-slate-300 transition-all duration-200 cursor-pointer"
+                onMouseLeave={handleMouseLeave} 
+                onMouseEnter={handleMouseEnter}
+                >
+
+                <div className="absolute inset-0 bg-gradient-to-br from-blue-50 to-purple-50 opacity-0 group-hover:opacity-100 rounded-xl transition-opacity pointer-events-none"></div>
+                <div className="relative flex items-start justify-between gap-4">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-2">
+                      <FileText size={16} className="text-slate-400" />
+                      <h3 className="text-lg font-semibold text-slate-900 truncate group-hover:text-blue-700 transition-colors">
+                        {note.title || 'Untitled Note'}
+                      </h3>
+                    </div>
+                    <p className="text-sm text-slate-600 line-clamp-2 mb-4 leading-relaxed">
+                      {note.content || 'Start writing...'}
+                    </p>
+                    <div className="flex items-center gap-4 text-xs text-slate-500">
+                      <span className="font-medium">{formatDate(note.updatedAt)}</span>
+                      {note.owner?.name && (
+                        <>
+                          <span>•</span>
+                          <div className="flex items-center gap-1.5">
+                            <div className="w-5 h-5 rounded-full bg-gradient-to-br from-blue-600 to-purple-600 flex items-center justify-center text-xs font-bold text-white">
+                              {note.owner.name.charAt(0).toUpperCase()}
+                            </div>
+                            <span>{note.owner.name}</span>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                  {/* Actions (edit/share/options) here */}
+                  <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <button 
+                      className="p-2 hover:bg-blue-50 rounded-lg transition-all text-slate-600 hover:text-blue-700"
+                      onClick={() => {
+                        setEditorMode('edit');
+                        setEditingNote(note);
+                        setSaveError(null);
+                      }}
+                      title="Edit note"
+                    >
+                      <Edit3 size={16} />
+                    </button>
+                    <button
+                      className="p-2 hover:bg-blue-50 rounded-lg transition-all text-slate-600 hover:text-blue-700"
+                      title="Share with team"
+                    >
+                      <Users size={16} />
+                    </button>
+                    <div className="relative">
+                      <button
+                        className="p-2 hover:bg-blue-50 rounded-lg transition-all text-slate-600 hover:text-blue-700"
+                        onClick={() => {
+                          setActiveNoteMenu(activeNoteMenu === note._id ? null : note._id);
+                        }}
+                        title="More options"
+                      >
+                        <MoreVertical size={16} />
+                      </button>
+                      {activeNoteMenu === note._id && (
+                        <div ref={menuRef} className="absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-xl border border-slate-200 py-1 z-10">
+                          <button
+                            className="w-full px-4 py-2 text-left text-sm hover:bg-slate-50 flex items-center gap-3 text-slate-700 hover:text-slate-900"
+                            onClick={() => {
+                              if (note.isFavorite) {
+                                updateNoteAsFavoriteRemoval(activeNoteMenu); // implement removal
+                              } else {
+                                updateNoteAsFavorite(activeNoteMenu); // existing add favorite method
+                              }
+                              setActiveNoteMenu(null); // Close the menu after action
+                            }}
+                          >
+                            <Star size={16} />
+                            {note.isFavorite ? 'Remove from favorites' : 'Add to favorites'}
+                          </button>
+
+                          <button
+                            className="w-full px-4 py-2 text-left text-sm hover:bg-slate-50 flex items-center gap-3 text-slate-700 hover:text-slate-900"
+                            onClick={() => {
+                              // TODO: Duplicate note
+                              console.log('Duplicate note:', note._id);
+                              setActiveNoteMenu(null);
+                            }}
+                          >
+                            <Copy size={16} />
+                            Duplicate
+                          </button>
+                          <button
+                            className="w-full px-4 py-2 text-left text-sm hover:bg-slate-50 flex items-center gap-3"
+                            onClick={() => setExportFormatMenu(exportFormatMenu === note._id ? null : note._id)}
+                          >
+                            <Download size={16} />
+                            Export
+                          </button>
+                          {exportFormatMenu === note._id && (
+                            <div className="absolute right-0 top-full mt-1 w-44 bg-white rounded-lg shadow-lg border border-slate-200 z-10">
+                              <button
+                                className="block w-full text-left px-4 py-2 hover:bg-slate-50"
+                                onClick={() => {
+                                  exportAsMarkdown(note);
+                                  setExportFormatMenu(null);
+                                  setActiveNoteMenu(null);
+                                }}
+                              >Export as Markdown</button>
+                              <button
+                                className="block w-full text-left px-4 py-2 hover:bg-slate-50"
+                                onClick={() => {
+                                  exportAsText(note);
+                                  setExportFormatMenu(null);
+                                  setActiveNoteMenu(null);
+                                }}
+                              >Export as Plain Text</button>
+                              <button
+                                className="block w-full text-left px-4 py-2 hover:bg-slate-50"
+                                onClick={() => {
+                                  exportAsPDF(note); // optional, only if you implement PDF
+                                  setExportFormatMenu(null);
+                                  setActiveNoteMenu(null);
+                                }}
+                              >Export as PDF</button>
+                            </div>
+                          )}
+
+                          <div className="border-t border-slate-200 my-1"></div>
+                          <button
+                            className="w-full px-4 py-2 text-left text-sm hover:bg-red-50 flex items-center gap-3 text-red-600 hover:text-red-700"
+                            onClick={() => {
+                              updateNoteAsTrashed(activeNoteMenu);
+                            }}
+                          >
+                            <Trash2 size={16} />
+                            Move to trash
+                          </button>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
-                
-                <h3 className="text-3xl font-bold text-slate-900 mb-3">
-                  {searchQuery ? 'No notes found' : 'Start creating'}
-                </h3>
-                <p className="text-lg text-slate-600 mb-8 max-w-md mx-auto">
-                  {searchQuery 
-                    ? `No notes match "${searchQuery}". Try a different search term.`
-                    : 'Create your first note and start collaborating with your team in real-time.'
-                  }
-                </p>
-
-                {!searchQuery && (
-                  <button
-                    className="px-8 py-3 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white rounded-lg font-semibold shadow-lg shadow-blue-500/30 hover:shadow-xl hover:shadow-blue-500/40 transition-all inline-flex items-center gap-2"
-                    onClick={() => {
-                      setEditorMode('create');
-                      setEditingNote({
-                        title: '',
-                        content: '',
-                        createdAt: new Date().toISOString(),
-                        owner: user
-                      });
-                      setSaveError(null);
-                      setSaveSuccess(false);
-                    }}
-                  >
-                    <Plus size={20} 
-                    />
-                    Create New Note
-                  </button>
-                )}
               </div>
-        ) )}
+            ))}
+          </div>
+        </>
+      ) : (
+        <div className="text-center py-20">
+          <div className="relative inline-block mb-6">
+            <div className="absolute inset-0 bg-gradient-to-br from-blue-600 to-purple-600 rounded-2xl blur-xl opacity-20"></div>
+            <div className="relative w-20 h-20 mx-auto rounded-2xl bg-gradient-to-br from-blue-100 to-purple-100 flex items-center justify-center">
+              <Edit3 size={32} className="text-blue-600" />
+            </div>
+          </div>
+          <h3 className="text-3xl font-bold text-slate-900 mb-3">
+            {searchQuery ? 'No notes found' : 'Start creating'}
+          </h3>
+          <p className="text-lg text-slate-600 mb-8 max-w-md mx-auto">
+            {searchQuery
+              ? `No notes match "${searchQuery}". Try a different search term.`
+              : 'Create your first note and start collaborating with your team in real-time.'}
+          </p>
+          {!searchQuery && (
+            <button
+              className="px-8 py-3 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white rounded-lg font-semibold shadow-lg shadow-blue-500/30 hover:shadow-xl hover:shadow-blue-500/40 transition-all inline-flex items-center gap-2"
+              onClick={() => {
+                setEditorMode('create');
+                setEditingNote({
+                  title: '',
+                  content: '',
+                  createdAt: new Date().toISOString(),
+                  owner: user
+                });
+                setSaveError(null);
+                setSaveSuccess(false);
+              }}
+            >
+              <Plus size={20} />
+              Create New Note
+            </button>
+          )}
         </div>
+      )}
     </div>
-      </main>
+  </div>
+</main>
+
+
     </div>
   );
 }

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Sparkles, Mail, Lock, ArrowRight, AlertCircle, CheckCircle2, Loader2 } from "lucide-react";
-import { loginUser } from "../api";
+import { loginUser, getUserInfo } from "../api";
 /**
  * Modern Login Page Component
  * 
@@ -13,7 +13,7 @@ import { loginUser } from "../api";
  * 
  * Note: Replace <a> tags with Link components and add your API calls
  */
-export default function Login() {
+export default function Login({ setUser }) {
   // Your existing state - keeping all your logic intact
   const [form, setForm] = useState({ email: "", password: "" });
   const [error, setError] = useState("");
@@ -34,6 +34,10 @@ export default function Login() {
     try {
       const result = await loginUser(form);
       if (!result.error) {
+        setUser(result.user);
+        // Option 2: Safer — fetch fresh user info from backend
+        const userInfo = await getUserInfo();
+        if (userInfo && userInfo._id) setUser(userInfo);
         setMessage("Login successful! Redirecting to dashboard...");
         setTimeout(() => navigate("/dashboard"), 1500);
       } else {

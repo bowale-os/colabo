@@ -1,7 +1,28 @@
 const API_URL = "http://localhost:3000/api"
 
+async function fetchWithAuth(url, options = {}) {
+  const res = await fetch(url, options);
+  if (res.status === 401) {
+    // Try to parse the error
+    let data;
+    try {
+      data = await res.json();
+    } catch {
+      data = {};
+    }
+    if (data.error === 'token_expired') {
+      // Optional: clear local state
+      window.location.href = '/login';  // Redirect to login
+      return; // Prevent further processing
+    }
+    // Optionally, handle other 401s
+  }
+  return res;
+}
+
+
 export async function registerUser(data) {
-  const res = await fetch(`${API_URL}/auth/register`, {
+  const res = await fetchWithAuth(`${API_URL}/auth/register`, {
     method: "POST",
     headers: {"Content-Type": "application/json"},
     credentials: "include", // Include cookies
@@ -11,7 +32,7 @@ export async function registerUser(data) {
 }
 
 export async function loginUser(data) {
-  const res = await fetch(`${API_URL}/auth/login`, {
+  const res = await fetchWithAuth(`${API_URL}/auth/login`, {
     method: "POST",
     headers: {"Content-Type": "application/json"},
     credentials: "include", // Include cookies
@@ -21,7 +42,7 @@ export async function loginUser(data) {
 }
 
 export async function logoutUser() {
-  const res = await fetch(`${API_URL}/auth/logout`, {
+  const res = await fetchWithAuth(`${API_URL}/auth/logout`, {
     method: "POST",
     headers: {"Content-Type": "application/json"},
     credentials: "include", // Include cookies
@@ -30,7 +51,7 @@ export async function logoutUser() {
 }
 
 export async function getUserInfo() {
-  const res = await fetch(`${API_URL}/user/me`, {
+  const res = await fetchWithAuth(`${API_URL}/user/me`, {
     method: "GET",
     headers: {"Content-Type": "application/json"},
     credentials: "include", // Include cookies
@@ -39,7 +60,7 @@ export async function getUserInfo() {
 }
 
 export async function getNotes() {
-  const res = await fetch(`${API_URL}/note`, {
+  const res = await fetchWithAuth(`${API_URL}/note`, {
     method: "GET",
     headers: {
       "Content-Type": "application/json"
@@ -51,7 +72,7 @@ export async function getNotes() {
 
 
 export async function createNote(data) {
-  const res = await fetch(`${API_URL}/note`, {
+  const res = await fetchWithAuth(`${API_URL}/note`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json"
@@ -64,7 +85,7 @@ export async function createNote(data) {
 
 
 export async function updateNote(id, data) {
-  const res = await fetch(`${API_URL}/note/${id}`, {
+  const res = await fetchWithAuth(`${API_URL}/note/${id}`, {
     method: "PUT",
     headers: {
       "Content-Type": "application/json"
@@ -77,7 +98,7 @@ export async function updateNote(id, data) {
 
 
 export async function deleteNote(id) {
-  const res = await fetch(`${API_URL}/note/${id}`, {
+  const res = await fetchWithAuth(`${API_URL}/note/${id}`, {
     method: "DELETE",
     headers: {
       "Content-Type": "application/json"
