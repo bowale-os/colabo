@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Sparkles, Mail, Lock, User, ArrowRight, AlertCircle, CheckCircle2, Loader2, Shield } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { registerUser, getUserInfo } from "../api";
+import { useAuth } from "../AuthContext";
 
 /**
  * Modern Register Page Component
@@ -14,6 +15,8 @@ import { registerUser, getUserInfo } from "../api";
  * 
  * Note: Replace <a> tags with Link components and add your API calls
  */
+
+
 export default function Register({ setUser }) {
   // Your existing state - keeping all your logic intact
   const [form, setForm] = useState({ name: "", email: "", password: "" });
@@ -22,6 +25,8 @@ export default function Register({ setUser }) {
   const [isLoading, setIsLoading] = useState(false);
   const [passwordStrength, setPasswordStrength] = useState(0);
   const navigate = useNavigate();
+
+  const { accessToken, setAccessToken } = useAuth();
 
   /**
    * Handles form submission for user registration
@@ -43,10 +48,15 @@ export default function Register({ setUser }) {
     try {
       // TODO: Uncomment and connect to your actual API
       const result = await registerUser(form);
-      if (result && result.message) {
-        const userInfo = await getUserInfo();
-        if (userInfo && userInfo._id) {
-          setUser(userInfo);
+      if (result && result.message) {        
+        setAccessToken(result.accessToken);
+
+        //use token saved in context
+        const userInfo = await getUserInfo(accessToken);
+
+        if (userInfo && userInfo.user && userInfo.token
+        ) {
+          setUser(userInfo.user);
           setMessage('Registration successful! Redirecting to dashboard...');
           setTimeout(() => navigate('/dashboard'), 1200);
         } else {
@@ -55,7 +65,6 @@ export default function Register({ setUser }) {
       } else {
         setError(result.error || "Registration failed. Please try again.");
       }   
-       
     } catch (err) {
       setError("Network error. Please try again.", err);
       setIsLoading(false);

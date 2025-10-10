@@ -5,7 +5,7 @@ const cookieParser = require('cookie-parser');
 const authRoutes = require('./routes/auth');
 const userRoutes = require('./routes/user');
 const noteRoutes = require('./routes/note');
-
+const collabRoutes = require('./routes/collab');
 
 const app = express();
 
@@ -13,7 +13,8 @@ const app = express();
 app.use(morgan('dev')); // or 'combined', 'tiny', etc.
 app.use(cors({
   origin: 'http://localhost:5173', // Only allow your React dev server
-  credentials: true
+  credentials: true,
+  allowedHeaders: ['Authorization', 'Content-Type']
 }));
 
 app.use(express.json());
@@ -23,6 +24,7 @@ app.use(cookieParser()); // Parse cookies from requests
 app.use('/api/auth', authRoutes);
 app.use('/api/user', userRoutes);
 app.use('/api/note', noteRoutes);
+app.use('/api/collab', collabRoutes); 
 
 //health check
 app.get('/', (req, res) => {

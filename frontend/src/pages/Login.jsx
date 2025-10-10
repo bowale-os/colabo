@@ -1,7 +1,15 @@
-import { useState } from "react";
+import { useState} from "react";
 import { useNavigate } from "react-router-dom";
 import { Sparkles, Mail, Lock, ArrowRight, AlertCircle, CheckCircle2, Loader2 } from "lucide-react";
 import { loginUser, getUserInfo } from "../api";
+import { createSocket, getSocket, disconnectSocket } from "../../services/socket";
+import { useAuth } from "../AuthContext";
+
+// connect (after login)
+
+// use getSocket() wherever needed, in any file/component
+
+
 /**
  * Modern Login Page Component
  * 
@@ -13,12 +21,18 @@ import { loginUser, getUserInfo } from "../api";
  * 
  * Note: Replace <a> tags with Link components and add your API calls
  */
+
+
+
 export default function Login({ setUser }) {
   // Your existing state - keeping all your logic intact
   const [form, setForm] = useState({ email: "", password: "" });
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const {accessToken, setAccessToken} = useAuth();
+
+  
   const navigate = useNavigate();
 
   /**
@@ -32,15 +46,49 @@ export default function Login({ setUser }) {
     setMessage("");
   
     try {
+      //add console.log for error finding
+      console.log('started')
       const result = await loginUser(form);
+
       if (!result.error) {
+        console.log('login was successful');
+        console.log("log in result", result);
+
+        //update user data and access token
         setUser(result.user);
-        // Option 2: Safer — fetch fresh user info from backend
-        const userInfo = await getUserInfo();
-        if (userInfo && userInfo._id) setUser(userInfo);
+        setAccessToken(result.accessToken);
+
+        // Fetch full user info for additional safety and create socket connection
+        const userInfo = await getUserInfo(result.accessToken, setAccessToken);
+        console.log(userInfo);
+
+        if (userInfo && userInfo.user) setUser(userInfo.user);
+
+        const socket = createSocket(userInfo.token);
+
+        socket.on("connect", () => {
+          socket.emit("user_connected", {
+              userId: userInfo.user._id,
+              name: userInfo.user.name,
+              token: userInfo.token
+          });
+        });
+
+        // Listen for auth errors and handle clean up
+        socket.on("auth-error", (data) => {
+          alert(data.message || "Authentication failed. Please login again.");
+          setUser(null);
+          socket.disconnect();
+          alert('Sockets were not connected, livetyping is disabled')
+          navigate('/login');
+        });
+        
         setMessage("Login successful! Redirecting to dashboard...");
+        alert('socket connected!')
+        
         setTimeout(() => navigate("/dashboard"), 1500);
       } else {
+        console.log('login was not succeessful')
         setError(result.error || "Login failed.");
       }
     } catch (err) {
@@ -63,6 +111,13 @@ export default function Login({ setUser }) {
     // Clear errors when user starts typing
     if (error) setError("");
   }
+
+//   useEffect(() => {
+//   return () => {
+//     if (socket) socket.disconnect();
+//   };
+// }, [socket]);
+
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-blue-50 flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8">

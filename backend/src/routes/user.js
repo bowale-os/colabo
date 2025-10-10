@@ -8,9 +8,9 @@ const router = express.Router();
 router.get('/me', authMiddleware, async (req, res) => {
   // At this point, req.user is the full user object (without password)
   if (!req.user) return res.status(404).json({ error: 'User not found' });
-  res.json(req.user);
+  res.json({
+    "user":req.user});
 });
-
 
 // Update current user's profile
 router.put('/update', authMiddleware, async (req, res) => {

@@ -1,11 +1,12 @@
 import { useEffect, useState, useRef } from "react";
 import { getNotes, getUserInfo, logoutUser, createNote, updateNote, deleteNote} from "../api";
 import { useNavigate } from "react-router-dom";
-import { Search, Plus, Star, Users, Trash2, Menu, MoreVertical, Edit3, Share2, ChevronRight, Sparkles, FileText, Copy, Download } from "lucide-react";
+import { Search, Plus, Star, Users, Trash2, Menu, MoreVertical, Edit3, Share2, ChevronRight, Sparkles, FileText, Copy, Download, Notebook, UserPlus} from "lucide-react";
 import TabBar from "../components/TabBar";
 import TextEditor from "../components/TextEditor";
 import { jsPDF } from "jspdf";
-
+import { createSocket, getSocket, disconnectSocket } from "../../services/socket";
+import { useAuth } from "../AuthContext";
 
 /**
  * Modern Dashboard - Matching Home/Login/Register Aesthetic
@@ -42,6 +43,8 @@ export default function Dashboard() {
 
 
   const navigate = useNavigate();
+  const {accessToken, setAccessToken} = useAuth();
+
 
   /**
    * Load dashboard data on mount - YOUR ORIGINAL BACKEND CALLS
@@ -119,6 +122,7 @@ useEffect(() => {
 }, [editorMode]);
 
 
+
 const closeMenuTimer = useRef();
 
 const handleMouseLeave = () => {
@@ -132,21 +136,22 @@ const handleMouseEnter = () => {
   clearTimeout(closeMenuTimer.current);
 };
 
-
-
-
-
   /**
    * Fetch user and notes data from your backend
    */
   async function loadDashboardData() {
     try {
       const [userData, notesData] = await Promise.all([
-        getUserInfo(),
-        getNotes()
+        getUserInfo(accessToken, setAccessToken),
+        getNotes(accessToken, setAccessToken)
       ]);
       
-      setUser(userData);
+      if (userData && userData.user) {
+        setUser(userData.user);
+      } else {
+        setUser(null); // or redirect to login
+      }
+
       setNotes(Array.isArray(notesData) ? notesData : []);
     } catch (error) {
       console.error('Error loading dashboard:', error);
@@ -155,10 +160,11 @@ const handleMouseEnter = () => {
       setLoading(false);
     }
   }
+
   
   async function updateNoteAsTrashed(id) {
   try {
-    await updateNote(id, { trashed: true, trashedAt: new Date() });
+    await updateNote(id, { trashed: true, trashedAt: new Date() }, accessToken, setAccessToken);
     
     // Optimistically update local state
     setNotes(prevNotes =>
@@ -184,7 +190,7 @@ async function deleteNoteForever(id) {
     // Optimistically remove the note from local state
     setNotes(prevNotes => prevNotes.filter(note => note._id !== id));
     // Call your API
-    await deleteNote(id);
+    await deleteNote(id, accessToken, setAccessToken);
     setDeleteSuccess(true);
     setTimeout(() => setDeleteSuccess(false), 3000);
   } catch (err) {
@@ -196,7 +202,7 @@ async function deleteNoteForever(id) {
 
 async function updateNoteAsFavorite(id) {
   try {
-    await updateNote(id, { isFavorite: true });
+    await updateNote(id, { isFavorite: true }, accessToken, setAccessToken);
     
     // Optimistically update local state
     setNotes(prevNotes =>
@@ -217,7 +223,7 @@ async function updateNoteAsFavorite(id) {
 
 async function updateNoteAsFavoriteRemoval(id) {
   try {
-    await updateNote(id, { isFavorite: false });
+    await updateNote(id, { isFavorite: false }, accessToken, setAccessToken);
     
     // Optimistically update local state
     setNotes(prevNotes =>
@@ -241,7 +247,7 @@ async function updateNoteAsFavoriteRemoval(id) {
     const result = await createNote({
       title: note.title,
       content: note.content
-    });
+    }, accessToken, setAccessToken);
 
     if (result) {
       setEditorMode('edit');
@@ -270,7 +276,8 @@ async function updateNoteAsFavoriteRemoval(id) {
    */
   async function handleLogout() {
     try {
-      await logoutUser();
+      await logoutUser(accessToken, setAccessToken);
+      disconnectSocket();
       navigate('/login');
     } catch (error) {
       console.error('Logout error:', error);
@@ -384,7 +391,7 @@ function exportAsPDF(note) {
     try {
       if (editorMode === 'create') {
         // First save of a new note
-        const savedNote = await createNote(editingNote);
+        const savedNote = await createNote(editingNote, accessToken, setAccessToken);
         
         // Update local state with the new note (now has _id)
         setNotes(prev => [...prev, savedNote]);
@@ -399,7 +406,7 @@ function exportAsPDF(note) {
         return { success: true };
       } else if (editorMode === 'edit') {
         // Updating existing note
-        const updatedNote = await updateNote(editingNote._id, editingNote);
+        const updatedNote = await updateNote(editingNote._id, editingNote, accessToken, setAccessToken);
         
         // Update in notes list
         setNotes(prev =>
@@ -427,10 +434,10 @@ async function handleManualSave() {
 
   try {
     if (editorMode === 'create') {
-      const savedNote = await createNote(editingNote);
+      const savedNote = await createNote(editingNote, accessToken, setAccessToken);
       setNotes(prev => [...prev, savedNote]);
     } else if (editorMode === 'edit') {
-      const updatedNote = await updateNote(editingNote._id, editingNote);
+      const updatedNote = await updateNote(editingNote._id, editingNote, accessToken, setAccessToken);
       setNotes(prev =>
         prev.map(n => n._id === updatedNote._id ? updatedNote : n)
       );
@@ -536,7 +543,7 @@ async function handleManualSave() {
               setTrashOpen(false);
             }}
           >
-            <Edit3 size={18} className="flex-shrink-0" />
+            <Notebook size={18} className="flex-shrink-0" />
             {!sidebarCollapsed && (
               <>
                 <span className="truncate flex-1 text-left">All Notes</span>
@@ -738,7 +745,8 @@ async function handleManualSave() {
       </div>
     </div>
     <div className="flex items-center gap-2">
-      <button className="px-4 py-2 text-sm font-medium text-slate-700 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-all flex items-center gap-2">
+      <button className="px-4 py-2 text-sm font-medium text-slate-700 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-all flex items-center gap-2"
+      >
         <Share2 size={16} />
         Share
       </button>
@@ -921,7 +929,7 @@ async function handleManualSave() {
             {filteredNotes.map(note => (
               <div 
                 key={note._id} 
-                className="group relative bg-white border border-slate-200 rounded-xl p-6 hover:shadow-xl hover:border-slate-300 transition-all duration-200 cursor-pointer"
+                className="group relative bg-white border border-slate-200 rounded-xl p-6 hover:shadow-xl hover:border-slate-300 transition-all duration-200"
                 onMouseLeave={handleMouseLeave} 
                 onMouseEnter={handleMouseEnter}
                 >
@@ -931,7 +939,13 @@ async function handleManualSave() {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-2">
                       <FileText size={16} className="text-slate-400" />
-                      <h3 className="text-lg font-semibold text-slate-900 truncate group-hover:text-blue-700 transition-colors">
+                      <h3 className="text-lg font-semibold text-slate-900 truncate group-hover:text-blue-700 cursor-pointer transition-colors"
+                      onClick={() => {
+                        setEditorMode('edit');
+                          setEditingNote(note);
+                          setSaveError(null);
+                        }}
+                        >
                         {note.title || 'Untitled Note'}
                       </h3>
                     </div>
@@ -968,9 +982,9 @@ async function handleManualSave() {
                     </button>
                     <button
                       className="p-2 hover:bg-blue-50 rounded-lg transition-all text-slate-600 hover:text-blue-700"
-                      title="Share with team"
+                      title="Share note"
                     >
-                      <Users size={16} />
+                      <UserPlus size={16} />
                     </button>
                     <div className="relative">
                       <button
