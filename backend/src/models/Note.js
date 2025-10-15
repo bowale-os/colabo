@@ -1,6 +1,24 @@
 // src/models/Note.js
 const mongoose = require('mongoose');
 
+
+//permission model to track users' permission when they are invited to a note
+const PermissionSchema = new mongoose.Schema({
+  user: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    requirsed: true
+  },
+
+  role: {
+    type: String,
+    enum: ['owner', 'editor', 'viewer'],
+    required: true
+  }
+}, { _id: false });
+
+
+
 const noteSchema = new mongoose.Schema({
   title: {
     type: String,
@@ -17,10 +35,7 @@ const noteSchema = new mongoose.Schema({
     ref: 'User',
     required: true,
   },
-  collaborators: [{
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'User',
-  }],
+  permissions: [PermissionSchema],
   trashed: { 
     type: Boolean, 
     default: false 

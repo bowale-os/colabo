@@ -24,7 +24,7 @@ app.use(cookieParser()); // Parse cookies from requests
 app.use('/api/auth', authRoutes);
 app.use('/api/user', userRoutes);
 app.use('/api/note', noteRoutes);
-app.use('/api/collab', collabRoutes); 
+app.use('/api/collab', collabRoutes)
 
 //health check
 app.get('/', (req, res) => {

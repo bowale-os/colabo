@@ -69,7 +69,7 @@ router.post('/login', async (req, res) => {
     console.log('found existing user!');
 
     // Compare password
-    const isMatch = bcrypt.compare(password, user.password);
+    const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) return res.status(401).json({ error: 'Invalid credentials' });
 
     console.log('checked password successfully');

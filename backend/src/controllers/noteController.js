@@ -26,16 +26,18 @@ exports.getNoteById = async (req, res) => {
 // Create a new note
 exports.createNote = async (req, res) => {
   try {
-
     console.log('process started')
 
     const note = new Note({
         ...req.body,
         owner: req.user._id,
+        permissions: [{
+          user: req.user._id,
+          role: 'owner'
+        }]
     });
 
     console.log('note was created');
-
     await note.save();
 
     console.log('note was saved');
@@ -43,7 +45,7 @@ exports.createNote = async (req, res) => {
     res.status(201).json(note);
   } catch (err) {
     console.log(err);
-    res.status(400).json({ error: 'Failed to create note'});
+    res.status(500).json({ error: 'Failed to create note'});
   }
 };
 
