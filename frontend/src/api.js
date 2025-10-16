@@ -138,3 +138,64 @@ export async function sendInvite(id, accessToken, setAccessToken) {
     headers: { "Content-Type": "application/json" }
   }, accessToken, setAccessToken);
 }
+
+
+
+//================================= COLLAB ROUTES =========================
+
+// Invite a user to collaborate on a note
+export async function inviteUser(payload, accessToken, setAccessToken) {
+  return await fetchWithAuth(`${API_URL}/collab/invite`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  }, accessToken, setAccessToken);
+}
+
+
+// Get all collaborators for a note
+export async function getNoteCollabs(noteId, accessToken, setAccessToken) {
+  return await fetchWithAuth(`${API_URL}/collab/${noteId}/collabs`, {
+    method: "GET",
+    headers: { "Content-Type": "application/json" }
+  }, accessToken, setAccessToken);
+}
+
+
+// Accept an invite (invitee only)
+export async function acceptInvite(inviteId, payload, accessToken, setAccessToken) {
+  return await fetchWithAuth(`${API_URL}/collab/${inviteId}/accept`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  }, accessToken, setAccessToken);
+}
+
+
+// Remove a collaborator (owner only)
+export async function removeCollab(collabId, payload, accessToken, setAccessToken) {
+  return await fetchWithAuth(`${API_URL}/collab/${collabId}/remove`, {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload) // DELETE allows body in fetch, some backends require in req.body
+  }, accessToken, setAccessToken);
+}
+
+
+// Change collaborator's role (owner only)
+export async function changeCollaboratorRole(noteId, collabId, payload, accessToken, setAccessToken) {
+  return await fetchWithAuth(`${API_URL}/collab/${noteId}/change-role/${collabId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  }, accessToken, setAccessToken);
+}
+
+
+// Get all pending invites for a note (owner only)
+export async function getPendingInvites(noteId, currentUserId, accessToken, setAccessToken) {
+  return await fetchWithAuth(`${API_URL}/collab/${noteId}/invites/${currentUserId}`, {
+    method: "GET",
+    headers: { "Content-Type": "application/json" }
+  }, accessToken, setAccessToken);
+}

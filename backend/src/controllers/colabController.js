@@ -244,7 +244,7 @@ exports.removeCollab = async (req, res) => {
 
 }
 
-
+//works!!
 //check if the person accepted the invite
 //user should not be able to change their role
 exports.changeCollabRole = async (req, res) => {
@@ -304,6 +304,7 @@ exports.changeCollabRole = async (req, res) => {
     }
 }
 
+//works!!
 //get all pending invites for note
 exports.getPendingInvites = async (req, res) => {
     try{
