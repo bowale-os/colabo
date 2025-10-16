@@ -362,6 +362,9 @@ function exportAsPDF(note) {
   
 }
 
+//getpendinginvite
+
+
 //handle share button click
 const handleShareClick = (note) => {
   setReferencedNote(note);

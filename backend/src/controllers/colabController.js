@@ -95,10 +95,6 @@ exports.getAllCollabs = async (req, res) => {
 
         //construct collaborators array
         const collabs = [
-            {
-                user: note.owner,
-                role: 'owner'
-            }, 
             ...note.permissions.map(p => ({
                 user: p.user,
                 role: p.role

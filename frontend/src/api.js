@@ -25,22 +25,30 @@ async function fetchWithAuth(url, options = {}, accessToken, setAccessToken) {
   let data = null;
   try {
       data = await res.json();
-  } catch {
-      data = {};
+  } catch (parseErr){
+      data = { error: 'Failed to parse server response.', parseErr };
   }
 
+  //Token expired error (401)
   if (data.error === 'token_expired' && res.status === 401) {
     const newAccessToken = await refreshAccessToken();
     if (newAccessToken && setAccessToken) {
       setAccessToken(newAccessToken);
-
+      //retry route with new token
       const retryRes = await fetchWithAuth(url, options, newAccessToken, setAccessToken);
       return retryRes;
 
     }
     window.location.href= '/login'
     return;
-  } 
+  }
+
+  if (!res.ok) {
+    // If backend sent a custom error message, include it in thrown Error
+    const message = data?.error || res.statusText || 'Unknown error';
+    throw new Error(message);
+  }
+
   return data;
 }
 
@@ -144,58 +152,69 @@ export async function sendInvite(id, accessToken, setAccessToken) {
 //================================= COLLAB ROUTES =========================
 
 // Invite a user to collaborate on a note
-export async function inviteUser(payload, accessToken, setAccessToken) {
-  return await fetchWithAuth(`${API_URL}/collab/invite`, {
+export async function inviteUser(currentUserId, collabEmail, noteId, collabRole, accessToken, setAccessToken) {
+  // Controller expects all four fields in body!
+  const response = await fetchWithAuth(`${API_URL}/collab/invite`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload)
+    body: JSON.stringify({ currentUserId, collabEmail, noteId, collabRole }),
   }, accessToken, setAccessToken);
+  // Return full response in case you want message, etc.
+  console.log(response);
+  return response; // returns { message: ... }
 }
-
 
 // Get all collaborators for a note
 export async function getNoteCollabs(noteId, accessToken, setAccessToken) {
-  return await fetchWithAuth(`${API_URL}/collab/${noteId}/collabs`, {
+  const response = await fetchWithAuth(`${API_URL}/collab/${noteId}/collabs`, {
     method: "GET",
     headers: { "Content-Type": "application/json" }
   }, accessToken, setAccessToken);
+  console.log(response);
+  // Defensive extract; always return array (even if API shape changes)
+  return Array.isArray(response?.collabs) ? response.collabs : [];
 }
-
 
 // Accept an invite (invitee only)
-export async function acceptInvite(inviteId, payload, accessToken, setAccessToken) {
-  return await fetchWithAuth(`${API_URL}/collab/${inviteId}/accept`, {
+export async function acceptInvite(inviteId, currentUserId, accessToken, setAccessToken) {
+  // Controller expects { currentUserId } in body
+  const response = await fetchWithAuth(`${API_URL}/collab/${inviteId}/accept`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload)
+    body: JSON.stringify({ currentUserId }),
   }, accessToken, setAccessToken);
+  return response;
 }
-
 
 // Remove a collaborator (owner only)
-export async function removeCollab(collabId, payload, accessToken, setAccessToken) {
-  return await fetchWithAuth(`${API_URL}/collab/${collabId}/remove`, {
+export async function removeCollab(collabId, currentUserId, noteId , accessToken, setAccessToken) {
+  // Controller expects currentUserId, noteId in body
+  const response = await fetchWithAuth(`${API_URL}/collab/${collabId}/remove`, {
     method: "DELETE",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload) // DELETE allows body in fetch, some backends require in req.body
+    body: JSON.stringify({ currentUserId, noteId }),
   }, accessToken, setAccessToken);
+  return response;
 }
-
 
 // Change collaborator's role (owner only)
-export async function changeCollaboratorRole(noteId, collabId, payload, accessToken, setAccessToken) {
-  return await fetchWithAuth(`${API_URL}/collab/${noteId}/change-role/${collabId}`, {
+export async function changeCollaboratorRole(noteId, collabId, { newRole, currentUserId }, accessToken, setAccessToken) {
+  // Controller expects newRole, currentUserId in body
+  const response = await fetchWithAuth(`${API_URL}/collab/${noteId}/change-role/${collabId}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload)
+    body: JSON.stringify({ newRole, currentUserId }),
   }, accessToken, setAccessToken);
+  return response;
 }
-
 
 // Get all pending invites for a note (owner only)
 export async function getPendingInvites(noteId, currentUserId, accessToken, setAccessToken) {
-  return await fetchWithAuth(`${API_URL}/collab/${noteId}/invites/${currentUserId}`, {
+  const response = await fetchWithAuth(`${API_URL}/collab/${noteId}/invites/${currentUserId}`, {
     method: "GET",
     headers: { "Content-Type": "application/json" }
   }, accessToken, setAccessToken);
+  // Defensive: always return array
+  console.log(response);
+  return Array.isArray(response?.pendingInvites) ? response.pendingInvites : [];
 }

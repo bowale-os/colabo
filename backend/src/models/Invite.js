@@ -12,6 +12,7 @@ const inviteSchema = new mongoose.Schema({
     required: true,
   },  
   status: { type: String, enum: ['pending', 'accepted', 'cancelled'], default: 'pending' },
+  role: { type: String, enum: ['viewer', 'editor'], default: 'viewer' },
   note: { type: mongoose.Schema.Types.ObjectId, ref: 'Note', required: true },
   sentAt: { type: Date, default: Date.now },
   AcceptedAt: { type: Date}, 

@@ -1,22 +1,23 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { X, Mail, UserPlus, Shield, Eye, Edit3, Trash2, Copy, Check, AlertCircle } from 'lucide-react';
+import { useAuth } from "../AuthContext";
+import {
+  inviteUser, getNoteCollabs, acceptInvite, removeCollab,
+  changeCollaboratorRole, getPendingInvites
+} from '../api';
 
 const ShareModal = ({ isOpen, onClose, note, currentUser }) => {
   const [email, setEmail] = useState('');
-  const [permission, setPermission] = useState('edit');
+  const [permission, setPermission] = useState('editor');
   const [isInviting, setIsInviting] = useState(false);
   const [inviteSuccess, setInviteSuccess] = useState(false);
   const [error, setError] = useState(null);
   const [copySuccess, setCopySuccess] = useState(false);
 
-  // Mock data - replace with API calls
-  const [pendingInvites, setPendingInvites] = useState([
-    { id: 1, email: 'jane@example.com', permission: 'edit', sentAt: new Date() }
-  ]);
-  
-  const [collaborators, setCollaborators] = useState([
-    { id: 1, name: 'John Doe', email: 'john@example.com', permission: 'edit', avatar: 'J' }
-  ]);
+  const { accessToken, setAccessToken } = useAuth();
+
+  const [pendingInvites, setPendingInvites] = useState([]);
+  const [collaborators, setCollaborators] = useState([]);
 
   if (!isOpen) return null;
 
@@ -30,43 +31,51 @@ const ShareModal = ({ isOpen, onClose, note, currentUser }) => {
     setError(null);
 
     try {
-      // API call would go here
-      // await api.collab.invite({ noteId: note._id, email, permission });
-      
-      setTimeout(() => {
-        setPendingInvites([...pendingInvites, {
-          id: Date.now(),
-          email,
-          permission,
-          sentAt: new Date()
-        }]);
-        setEmail('');
-        setInviteSuccess(true);
-        setIsInviting(false);
-        
-        setTimeout(() => setInviteSuccess(false), 3000);
-      }, 1000);
+      await inviteUser( currentUser._id, email, note._id, permission, accessToken, setAccessToken);
+      setEmail('');
+      setInviteSuccess(true);
+      setIsInviting(false);
+      setTimeout(() => setInviteSuccess(false), 3000);
+      // Refresh invites
+      const invites = await getPendingInvites(note._id, currentUser._id, accessToken, setAccessToken);
+      setPendingInvites(invites || []);
     } catch (err) {
-      setError('Failed to send invitation');
+      setError(err.message);
       setIsInviting(false);
     }
   };
 
   const handleCopyLink = () => {
-    // Generate shareable link
     const shareLink = `${window.location.origin}/note/${note._id}/accept`;
     navigator.clipboard.writeText(shareLink);
     setCopySuccess(true);
     setTimeout(() => setCopySuccess(false), 2000);
   };
 
-  const removeCollaborator = (id) => {
-    setCollaborators(collaborators.filter(c => c.id !== id));
+  // Remove collaborator via API, then refresh
+  const removeCollaborator = async (collabId) => {
+    await removeCollab(collabId, currentUser._id, note._id, accessToken, setAccessToken);
+    const collabs = await getNoteCollabs(note._id, accessToken, setAccessToken);
+    setCollaborators(collabs || []);
   };
 
-  const cancelInvite = (id) => {
-    setPendingInvites(pendingInvites.filter(i => i.id !== id));
-  };
+  // Accept/cancel invites as needed...
+
+  useEffect(() => {
+    if (!isOpen || !note?._id || !currentUser?._id) return;
+
+    async function fetchData() {
+      const [collabs, invites] = await Promise.all([
+        getNoteCollabs(note._id, accessToken, setAccessToken),
+        getPendingInvites(note._id, currentUser._id, accessToken, setAccessToken)
+      ]);
+      console.log("collabs", collabs);
+      console.log("pending invites", invites);
+      setCollaborators(collabs || []);
+      setPendingInvites(invites || []);
+    }
+    fetchData();
+  }, [isOpen, note?._id, currentUser?._id, accessToken, setAccessToken]);
 
   return (
     <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
@@ -98,7 +107,6 @@ const ShareModal = ({ isOpen, onClose, note, currentUser }) => {
               <Mail size={16} />
               Invite by Email
             </h3>
-            
             <div className="flex gap-2">
               <input
                 type="email"
@@ -108,17 +116,14 @@ const ShareModal = ({ isOpen, onClose, note, currentUser }) => {
                 className="flex-1 px-4 py-2.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
                 onKeyPress={(e) => e.key === 'Enter' && handleInvite()}
               />
-              
               <select
                 value={permission}
                 onChange={(e) => setPermission(e.target.value)}
                 className="px-3 py-2.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all bg-white"
               >
-                <option value="view">View</option>
-                <option value="edit">Edit</option>
-                <option value="admin">Admin</option>
+                <option value="viewer">Viewer</option>
+                <option value="editor">Editor</option>
               </select>
-
               <button
                 onClick={handleInvite}
                 disabled={isInviting}
@@ -134,27 +139,21 @@ const ShareModal = ({ isOpen, onClose, note, currentUser }) => {
                 {error}
               </div>
             )}
-
             {inviteSuccess && (
               <div className="flex items-center gap-2 text-sm text-green-600 bg-green-50 px-4 py-2 rounded-lg">
                 <Check size={16} />
                 Invitation sent successfully!
               </div>
             )}
-
             {/* Permission Legend */}
             <div className="flex items-center gap-4 text-xs text-slate-500 bg-slate-50 px-4 py-2 rounded-lg">
               <div className="flex items-center gap-1.5">
                 <Eye size={12} />
-                <span>View: Read only</span>
+                <span>Viewer: Read only</span>
               </div>
               <div className="flex items-center gap-1.5">
                 <Edit3 size={12} />
-                <span>Edit: Can modify</span>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <Shield size={12} />
-                <span>Admin: Full control</span>
+                <span>Editor: Can modify</span>
               </div>
             </div>
           </div>
@@ -196,15 +195,17 @@ const ShareModal = ({ isOpen, onClose, note, currentUser }) => {
           </div>
 
           {/* Pending Invites */}
-          {pendingInvites.length > 0 && (
-            <div className="space-y-3 pt-4 border-t border-slate-100">
-              <h3 className="text-sm font-semibold text-slate-900">
-                Pending Invites ({pendingInvites.length})
-              </h3>
+          <div className="space-y-3 pt-4 border-t border-slate-100">
+            <h3 className="text-sm font-semibold text-slate-900">
+              Pending Invites ({pendingInvites.length})
+            </h3>
+            {pendingInvites.length === 0 ? (
+              <div className="text-slate-500 text-sm italic pl-1">No pending invites.</div>
+            ) : (
               <div className="space-y-2">
                 {pendingInvites.map(invite => (
                   <div
-                    key={invite.id}
+                    key={invite._id}
                     className="flex items-center justify-between p-3 bg-amber-50 border border-amber-200 rounded-lg"
                   >
                     <div className="flex items-center gap-3">
@@ -212,61 +213,60 @@ const ShareModal = ({ isOpen, onClose, note, currentUser }) => {
                         <Mail size={16} className="text-amber-600" />
                       </div>
                       <div>
-                        <p className="text-sm font-medium text-slate-900">{invite.email}</p>
+                        <p className="text-sm font-medium text-slate-900">{invite.recipient.name}({invite.recipient.email})</p>
                         <p className="text-xs text-slate-500">
-                          Can {invite.permission} · Sent {new Date(invite.sentAt).toLocaleDateString()}
+                          { invite.role } · {invite.sentAt ? new Date(invite.sentAt).toLocaleDateString() : ""}
                         </p>
                       </div>
                     </div>
-                    <button
-                      onClick={() => cancelInvite(invite.id)}
-                      className="px-3 py-1.5 text-xs text-amber-700 hover:bg-amber-100 rounded-md transition-colors"
-                    >
-                      Cancel
-                    </button>
+                    {/* Add cancelInvite logic if needed */}
                   </div>
                 ))}
               </div>
-            </div>
-          )}
+            )}
+          </div>
 
           {/* Current Collaborators */}
-          {collaborators.length > 0 && (
-            <div className="space-y-3 pt-4 border-t border-slate-100">
-              <h3 className="text-sm font-semibold text-slate-900">
-                Collaborators ({collaborators.length})
-              </h3>
+          <div className="space-y-3 pt-4 border-t border-slate-100">
+            <h3 className="text-sm font-semibold text-slate-900">
+              Collaborators ({collaborators.length})
+            </h3>
+            {collaborators.length === 0 ? (
+              <div className="text-slate-500 text-sm italic pl-1">No collaborators yet.</div>
+            ) : (
               <div className="space-y-2">
                 {collaborators.map(collab => (
                   <div
-                    key={collab.id}
+                    key={collab.user?._id}
                     className="flex items-center justify-between p-3 bg-slate-50 border border-slate-200 rounded-lg hover:bg-slate-100 transition-colors"
                   >
                     <div className="flex items-center gap-3">
                       <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-600 to-purple-600 flex items-center justify-center text-white font-bold text-sm">
-                        {collab.avatar}
+                        {collab.user?.name ? collab.user.name.charAt(0).toUpperCase() : "U"}
                       </div>
                       <div>
-                        <p className="text-sm font-medium text-slate-900">{collab.name}</p>
-                        <p className="text-xs text-slate-500">{collab.email}</p>
+                        <p className="text-sm font-medium text-slate-900">{collab.user?.name || "Unknown"}</p>
+                        <p className="text-xs text-slate-500">{collab.user?.email || "No email"}</p>
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
-                      <span className="px-2 py-1 text-xs bg-blue-100 text-blue-700 rounded-md">
-                        {collab.permission}
+                      <span className="px-2 py-1 text-xs bg-blue-100 text-blue-700 rounded-md capitalize">
+                        {collab.role}
                       </span>
-                      <button
-                        onClick={() => removeCollaborator(collab.id)}
-                        className="p-1.5 hover:bg-red-50 rounded-md transition-colors"
-                      >
-                        <Trash2 size={14} className="text-red-600" />
-                      </button>
+                      {collab.role !== "owner" && (
+                        <button
+                          onClick={() => removeCollaborator(collab.user._id)}
+                          className="p-1.5 hover:bg-red-50 rounded-md transition-colors"
+                        >
+                          <Trash2 size={14} className="text-red-600" />
+                        </button>
+                      )}
                     </div>
                   </div>
                 ))}
               </div>
-            </div>
-          )}
+            )}
+          </div>
         </div>
 
         {/* Footer */}
