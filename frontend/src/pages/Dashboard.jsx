@@ -7,6 +7,7 @@ import TextEditor from "../components/TextEditor";
 import { jsPDF } from "jspdf";
 import { createSocket, getSocket, disconnectSocket } from "../../services/socket";
 import { useAuth } from "../AuthContext";
+import ShareModal from "../components/ShareModal";
 
 /**
  * Modern Dashboard - Matching Home/Login/Register Aesthetic
@@ -39,6 +40,8 @@ export default function Dashboard() {
   const [editingNote, setEditingNote] = useState(null); // Used for both new and edit
   const [activeNoteMenu, setActiveNoteMenu] = useState(null);
   const [exportFormatMenu, setExportFormatMenu] = useState(null);
+  const [showShareModal, setShowShareModal] = useState(false);
+  const [referencedNote, setReferencedNote] = useState(null);
   const menuRef = useRef(null);
 
 
@@ -358,6 +361,12 @@ function exportAsPDF(note) {
   doc.save(note.title + ".pdf");
   
 }
+
+//handle share button click
+const handleShareClick = (note) => {
+  setReferencedNote(note);
+  setShowShareModal(true);
+};
 
 
   /**
@@ -983,6 +992,7 @@ async function handleManualSave() {
                     <button
                       className="p-2 hover:bg-blue-50 rounded-lg transition-all text-slate-600 hover:text-blue-700"
                       title="Share note"
+                      onClick={() => handleShareClick(note)}
                     >
                       <UserPlus size={16} />
                     </button>
@@ -1075,6 +1085,15 @@ async function handleManualSave() {
                 </div>
               </div>
             ))}
+            {showShareModal && referencedNote && (
+              <ShareModal
+                isOpen={showShareModal}
+                note={referencedNote}
+                currentUser={user}
+                onClose={() => setShowShareModal(false)}
+              />
+            )}
+
           </div>
         </>
       ) : (
