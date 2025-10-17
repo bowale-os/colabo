@@ -1,15 +1,13 @@
-require('dotenv').config(); // Loads env variables (MONGODB_URL, PORT, etc.)
-
-const app = require('./app'); // Import your Express app
-const connectDB = require('./config/db'); // MongoDB connect function
+require('dotenv').config(); 
+const connectDB = require('./config/db'); 
+const app = require('./app');
 // const config = require('./config/config'); // Your config.js (if you use one)
 const httpServer = require('http').createServer(app);
 const { Server } = require('socket.io');
 const jwt = require('jsonwebtoken');
-const User = require('./models/User'); // or wherever your User model is
+const User = require('./models/User');
 
 connectDB();
-
 const port = process.env.PORT || 3000;
 
 const io = new Server(httpServer, {
@@ -21,63 +19,44 @@ const io = new Server(httpServer, {
 });
 
 
-const verifyToken = async (token) => {
-  try {
-    // Verify JWT signature and expiration
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    console.log("decoded is", decoded);
-    
-    // Additional checks
-    if (!decoded.userId) {
-      return {"error":
-        "Invalid token: missing userId"
-        }
-      };
+// Socket authentication middleware
+io.use( async (socket, next) => {
+  const token = socket.handshake.auth.token;
+  if (!token) {
 
-    return {
-      id: decoded.userId,
-      // Add other user fields as needed
-    };
-  } catch (error) {
-    if (error.name === 'TokenExpiredError') {
-      console.log('Token expired');
-    } else if (error.name === 'JsonWebTokenError') {
-      console.log('Invalid token');
-    }
-    console.error('Token verification error:', error);
-    return ;
+    return next(new Error("No token provided"));
   }
-};
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    console.log(decoded);
+    socket.userId = decoded.userId;
+    const user = await User.findById(decoded.userId);
+    socket.userName = user.name; // If available in your JWT
+    // Attach any other info needed
+    next();
+  } catch (error) {
+    console.error('Token verification error:', error);
+    // Disconnects socket if authentication fails
+    return next(new Error("Invalid or expired token"));
+  }
+});
 
-
-// Your socket event handlers
+// Handle connections/events
 io.on('connection', (socket) => {
-  console.log('A user connected:', socket.id);
-  
-  socket.on("user_connected", async ({ userId, name, token }) => {
-    try{
-      const verified = await verifyToken(token);
-      if (!verified) {
-        socket.emit('auth-error', { message: 'Invalid or expired token' });
-        return;
-      }
-      socket.userId = verified.userId;
-      socket.userName = name;
-      console.log(`User ${name} (${userId}) connected on socket ${socket.id} and verified`, verified);
+  console.log('User connected:', socket.id, socket.userId, socket.userName);
 
-    }catch (err){
-      socket.emit('auth-error', { message: 'Authentication failed' });
-    }
+  socket.on("user_connected", ({ name, email }) => {
+    // You already know socket.userId from middleware
+    console.log(`User ${name} (${email}) connected via event on socket ${socket.id}`);
+    // Optionally: broadcast online status, etc.
   });
 
   socket.on('disconnect', () => {
-    console.log(`Socket ${socket.id} disconnected
-    `)
+    console.log(`Socket ${socket.id} (userId: ${socket.userId}) disconnected`);
+    // Optionally mark user as offline
   });
-
 });
 
-
 httpServer.listen(port, () => {
-    console.log(`Server listening on port ${port}`);
-})
+  console.log(`Server listening on port ${port}`);
+});

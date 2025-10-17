@@ -30,7 +30,7 @@ export default function Login({ setUser }) {
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [isLoading, setIsLoading] = useState(false);
-  const {accessToken, setAccessToken} = useAuth();
+  const { setAccessToken } = useAuth();
 
   
   const navigate = useNavigate();
@@ -51,42 +51,34 @@ export default function Login({ setUser }) {
       const result = await loginUser(form);
 
       if (!result.error) {
-        console.log('login was successful');
-        console.log("log in result", result);
 
         //update user data and access token
         setUser(result.user);
-        setAccessToken(result.accessToken);
+        setAccessToken(result.accessToken)
 
-        // Fetch full user info for additional safety and create socket connection
-        const userInfo = await getUserInfo(result.accessToken, setAccessToken);
-        console.log(userInfo);
+        console.log(result);
 
-        if (userInfo && userInfo.user) setUser(userInfo.user);
-
-        const socket = createSocket(userInfo.token);
-
+        const socket = createSocket(result.accessToken);
+        
+        //send socket emit to show user's login
         socket.on("connect", () => {
           socket.emit("user_connected", {
-              userId: userInfo.user._id,
-              name: userInfo.user.name,
-              token: userInfo.token
+              userId: result.user.id,
+              name: result.user.name,
+              email: result.user.email
           });
         });
 
-        // Listen for auth errors and handle clean up
-        socket.on("auth-error", (data) => {
-          alert(data.message || "Authentication failed. Please login again.");
-          setUser(null);
-          socket.disconnect();
-          alert('Sockets were not connected, livetyping is disabled')
-          navigate('/login');
+        socket.on("connect_error", (err) => {
+          alert(err.message || "WebSocket authentication failed.");
+          disconnectSocket();
+          navigate("/login");
         });
-        
+
         setMessage("Login successful! Redirecting to dashboard...");
-        alert('socket connected!')
-        
+        console.log('socket connected!');
         setTimeout(() => navigate("/dashboard"), 1500);
+      
       } else {
         console.log('login was not succeessful')
         setError(result.error || "Login failed.");
@@ -98,6 +90,8 @@ export default function Login({ setUser }) {
       setIsLoading(false);
     }
   }
+
+      
   
 
   /**
